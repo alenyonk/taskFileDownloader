@@ -14,7 +14,7 @@ import java.util.concurrent.*;
 
 public class FileDownloader implements Runnable {
     private final String fileUrl;
-    private final int threadCount;
+    private int threadCount;
     private final ExecutorService pool;
     private final RandomAccessFile file;
     private final HttpClient client;
@@ -70,9 +70,8 @@ public class FileDownloader implements Runnable {
         long chunkSize = fileSize / threadCount;
 
         if (chunkSize == 0){ // number of threads is bigger than file size
-            for (int i = 0; i < threadCount; i++) {
-                long start = i % fileSize;
-                ranges.add(new Range(start, start));
+            for (int i = 0; i < fileSize; i++) {
+                ranges.add(new Range(i, i));
             }
             return ranges;
         }
@@ -96,6 +95,8 @@ public class FileDownloader implements Runnable {
         try {
             long fileSize = getFileSize();
             List<Range> ranges = calculateRanges(fileSize);
+            threadCount = Math.min(threadCount, Math.toIntExact(fileSize));
+
             for (int i = 0; i < threadCount; i++) {
                 long start = ranges.get(i).start;
                 long end = ranges.get(i).end;
@@ -107,17 +108,13 @@ public class FileDownloader implements Runnable {
                         .GET()
                         .build();
 
-                Future<Chunk> future =
-                        pool.submit(
-                                new DownloadChunk(client, getRequest, i)
-                        );
+                pool.submit(
+                        new DownloadChunk(client, getRequest, file, start)
+                );
 
-                Chunk chunk = future.get();
-                file.seek(start);
-                file.write(chunk.getData());
             }
 
-        } catch (IOException | InterruptedException | ExecutionException ex) {
+        } catch (IOException | InterruptedException ex) {
             pool.shutdown();
             throw new RuntimeException(ex);
         }

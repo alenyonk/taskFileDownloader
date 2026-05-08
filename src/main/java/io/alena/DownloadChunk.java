@@ -1,42 +1,46 @@
 package io.alena;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.concurrent.Callable;
 
-public class DownloadChunk implements Callable<Chunk> {
+public class DownloadChunk implements Runnable {
     private final HttpClient client;
     private final HttpRequest request;
-    private Chunk chunk = null;
-    private final int id;
+    private final RandomAccessFile file;
+    private final long start;
 
     public DownloadChunk(
             HttpClient client,
             HttpRequest request,
-            int id
+            RandomAccessFile file,
+            long start
     ) {
         this.client = client;
         this.request = request;
-        this.id = id;
+        this.file = file;
+        this.start = start;
     }
 
     @Override
-    public Chunk call() throws Exception {
+    public void run() {
+        try {
+            HttpResponse<byte[]> getResponse =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofByteArray()
+                    );
 
-        HttpResponse<byte[]> getResponse =
-                client.send(
-                        request,
-                        HttpResponse.BodyHandlers.ofByteArray()
+            if (getResponse.statusCode() < 200 || getResponse.statusCode() >= 300)
+                throw new IOException(
+                        "Chunk GET request failed with HTTP status: " + getResponse.statusCode()
                 );
-
-        if (getResponse.statusCode() < 200 || getResponse.statusCode() >= 300) {
-            throw new IOException(
-                    "Chunk GET request failed with HTTP status: " + getResponse.statusCode()
-            );
+            System.out.println("Thread " + start);
+            file.seek(start);
+            file.write(getResponse.body());
+        }catch (Exception e){
+            throw new RuntimeException(e);
         }
-
-
-        return new Chunk(getResponse.body(), id);
     }
 }

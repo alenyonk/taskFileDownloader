@@ -62,9 +62,6 @@ class FileDownloaderTest {
         assertEquals(2, smallRanges.get(2).start);
         assertEquals(2, smallRanges.get(2).end);
 
-        assertEquals(0, smallRanges.get(3).start);
-        assertEquals(0, smallRanges.get(3).end);
-
 
     }
 
