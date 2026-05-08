@@ -1,10 +1,8 @@
 package io.alena;
 import java.io.IOException;
-import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.Arrays;
 import java.util.concurrent.Callable;
 
 public class DownloadChunk implements Callable<Chunk> {
@@ -26,12 +24,19 @@ public class DownloadChunk implements Callable<Chunk> {
     @Override
     public Chunk call() throws Exception {
 
-        HttpResponse<byte[]> response =
+        HttpResponse<byte[]> getResponse =
                 client.send(
                         request,
                         HttpResponse.BodyHandlers.ofByteArray()
                 );
 
-        return new Chunk(response.body(), id);
+        if (getResponse.statusCode() < 200 || getResponse.statusCode() >= 300) {
+            throw new IOException(
+                    "Chunk GET request failed with HTTP status: " + getResponse.statusCode()
+            );
+        }
+
+
+        return new Chunk(getResponse.body(), id);
     }
 }

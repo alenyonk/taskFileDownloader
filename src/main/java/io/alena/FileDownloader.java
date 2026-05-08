@@ -1,27 +1,31 @@
 package io.alena;
-import java.io.FileOutputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
 
 public class FileDownloader implements Runnable {
     private final String fileUrl;
-    private final String outputFile;
     private final int threadCount;
     private final ExecutorService pool;
+    private final RandomAccessFile file;
     private final HttpClient client;
 
     public FileDownloader(String fileUrl, String outputFile, int threadCount) {
         this.fileUrl = fileUrl;
-        this.outputFile = outputFile;
+        try {
+            this.file = new RandomAccessFile(outputFile, "rw");
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
         this.threadCount = threadCount;
 
         this.pool = Executors.newFixedThreadPool(threadCount);
@@ -42,7 +46,20 @@ public class FileDownloader implements Runnable {
                         HttpResponse.BodyHandlers.discarding()
                 );
 
+        if (headResponse.statusCode() < 200 || headResponse.statusCode() >= 300) {
+            throw new IOException(
+                    "HEAD request failed with HTTP status: " + headResponse.statusCode()
+            );
+        }
+
         HttpHeaders headers = headResponse.headers();
+
+        Optional<String> acceptRanges =
+                headers.firstValue("Accept-Ranges");
+        if (acceptRanges.isEmpty() || !acceptRanges.get().equals("bytes")){
+            throw new IllegalStateException("Server does not accept byte ranges.");
+        }
+
         Optional<String> contentLength =
                 headers.firstValue("Content-Length");
         return contentLength.map(Long::parseLong).orElse(0L);
@@ -51,6 +68,14 @@ public class FileDownloader implements Runnable {
     public List<Range> calculateRanges(long fileSize) {
         List<Range> ranges = new ArrayList<>();
         long chunkSize = fileSize / threadCount;
+
+        if (chunkSize == 0){ // number of threads is bigger than file size
+            for (int i = 0; i < threadCount; i++) {
+                long start = i % fileSize;
+                ranges.add(new Range(start, start));
+            }
+            return ranges;
+        }
 
         for (int i = 0; i < threadCount; i++) {
             long start = i * chunkSize;
@@ -62,6 +87,7 @@ public class FileDownloader implements Runnable {
             }
             ranges.add(new Range(start, end));
         }
+
         return ranges;
     }
 
@@ -70,8 +96,6 @@ public class FileDownloader implements Runnable {
         try {
             long fileSize = getFileSize();
             List<Range> ranges = calculateRanges(fileSize);
-            long chunkSize = fileSize / threadCount;
-            List<Future<Chunk>> futures = new ArrayList<>();
             for (int i = 0; i < threadCount; i++) {
                 long start = ranges.get(i).start;
                 long end = ranges.get(i).end;
@@ -88,29 +112,14 @@ public class FileDownloader implements Runnable {
                                 new DownloadChunk(client, getRequest, i)
                         );
 
-                futures.add(future);
+                Chunk chunk = future.get();
+                file.seek(start);
+                file.write(chunk.getData());
             }
 
-            List<Chunk> chunks = new ArrayList<>();
-            for (Future<Chunk> future : futures) {
-                chunks.add(future.get());
-            }
-            chunks.sort(Comparator.comparingInt(Chunk::getId));
-
-            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
-
-                for (Chunk chunk : chunks) {
-                    fos.write(chunk.getData());
-                }
-            }
-
+        } catch (IOException | InterruptedException | ExecutionException ex) {
             pool.shutdown();
-            pool.awaitTermination(1, TimeUnit.HOURS);
-        } catch (IOException | InterruptedException ex) {
-            ex.printStackTrace();
-            pool.shutdown();
-        } catch (ExecutionException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException(ex);
         }
     }
 

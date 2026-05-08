@@ -17,7 +17,7 @@ public class Main {
             downloader.run();
             System.out.println("Download completed!");
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new RuntimeException(e);
         }
     }
 }
