@@ -97,6 +97,8 @@ public class FileDownloader implements Runnable {
             List<Range> ranges = calculateRanges(fileSize);
             threadCount = Math.min(threadCount, Math.toIntExact(fileSize));
 
+            List<Future<?>> futures = new ArrayList<>();
+
             for (int i = 0; i < threadCount; i++) {
                 long start = ranges.get(i).start;
                 long end = ranges.get(i).end;
@@ -108,13 +110,18 @@ public class FileDownloader implements Runnable {
                         .GET()
                         .build();
 
-                pool.submit(
+                futures.add(pool.submit(
                         new DownloadChunk(client, getRequest, file, start)
-                );
-
+                ));
             }
 
-        } catch (IOException | InterruptedException ex) {
+            for (Future<?> future : futures){
+                future.get();
+            }
+
+            pool.shutdown();
+            file.close();
+        } catch (IOException | InterruptedException | ExecutionException ex) {
             pool.shutdown();
             throw new RuntimeException(ex);
         }

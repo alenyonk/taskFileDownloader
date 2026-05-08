@@ -36,9 +36,11 @@ public class DownloadChunk implements Runnable {
                 throw new IOException(
                         "Chunk GET request failed with HTTP status: " + getResponse.statusCode()
                 );
-            System.out.println("Thread " + start);
-            file.seek(start);
-            file.write(getResponse.body());
+
+            synchronized (file) {
+                file.seek(start);
+                file.write(getResponse.body());
+            }
         }catch (Exception e){
             throw new RuntimeException(e);
         }
